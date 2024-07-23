@@ -52,7 +52,7 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
         # TODO check if the CRS of the graph and shapefile match
         def networkx_overlay(
             hazard_overlay: GeoDataFrame, hazard_shp_file: Path, ra2ce_name: str
-        ):
+        ) -> GeoDataFrame:
             gdf = read_file(str(hazard_shp_file))
             spatial_index = gdf.sindex
 
@@ -87,8 +87,9 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
                     hazard_overlay[u][v][k][
                         ra2ce_name + "_" + self.hazard_aggregate_wl[:2]
                     ] = 0
+            return hazard_overlay
 
-        self._overlay_hazard_files(
+        hazard_overlay = self._overlay_hazard_files(
             overlay_func=networkx_overlay, hazard_overlay=hazard_overlay
         )
 
@@ -107,7 +108,7 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
 
         def geodataframe_overlay(
             hazard_overlay: GeoDataFrame, hazard_shp_file: Path, ra2ce_name: str
-        ):
+        ) -> GeoDataFrame:
             gdf_hazard = read_file(str(hazard_shp_file))
 
             if hazard_overlay.crs != gdf_hazard.crs:
@@ -118,6 +119,7 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
                 gdf_hazard[[self.hazard_field_name, "geometry"]],
                 how="left",
             )
+            hazard_overlay["wl(m)"] = hazard_overlay["wl(m)"].fillna(0)
             hazard_overlay.rename(
                 columns={
                     self.hazard_field_name: ra2ce_name
@@ -126,22 +128,24 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
                 },
                 inplace=True,
             )
+            return hazard_overlay
 
-        self._overlay_hazard_files(
+        hazard_overlay_performed = self._overlay_hazard_files(
             hazard_overlay=hazard_overlay, overlay_func=geodataframe_overlay
         )
 
-        if hazard_overlay.crs != gdf_crs_original:
-            hazard_overlay = hazard_overlay.to_crs(gdf_crs_original)
+        if hazard_overlay_performed.crs != gdf_crs_original:
+            hazard_overlay_performed = hazard_overlay_performed.to_crs(gdf_crs_original)
 
-        return hazard_overlay
+        return hazard_overlay_performed
 
     def _overlay_hazard_files(
         self, overlay_func: Callable[[str, str], None], hazard_overlay: GeoDataFrame
-    ):
+    ) -> GeoDataFrame:
         for i, _ra2ce_name in enumerate(self.ra2ce_names):
-            overlay_func(
+            _hazard_overlay = overlay_func(
                 hazard_overlay=hazard_overlay,
                 hazard_shp_file=self.hazard_gpkg_files[i],
                 ra2ce_name=_ra2ce_name,
             )
+        return _hazard_overlay
