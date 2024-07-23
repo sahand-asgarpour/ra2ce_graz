@@ -50,7 +50,9 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
         """
 
         # TODO check if the CRS of the graph and shapefile match
-        def networkx_overlay(hazard_shp_file: Path, race_name: str):
+        def networkx_overlay(
+            hazard_overlay: GeoDataFrame, hazard_shp_file: Path, ra2ce_name: str
+        ):
             gdf = read_file(str(hazard_shp_file))
             spatial_index = gdf.sindex
 
@@ -67,26 +69,28 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
                     if not precise_matches.empty:
                         if self.hazard_aggregate_wl == "max":
                             hazard_overlay[u][v][k][
-                                race_name + "_" + self.hazard_aggregate_wl[:2]
+                                ra2ce_name + "_" + self.hazard_aggregate_wl[:2]
                             ] = precise_matches[self.hazard_field_name].max()
                         if self.hazard_aggregate_wl == "min":
                             hazard_overlay[u][v][k][
-                                race_name + "_" + self.hazard_aggregate_wl[:2]
+                                ra2ce_name + "_" + self.hazard_aggregate_wl[:2]
                             ] = precise_matches[self.hazard_field_name].min()
                         if self.hazard_aggregate_wl == "mean":
                             hazard_overlay[u][v][k][
-                                race_name + "_" + self.hazard_aggregate_wl[:2]
+                                ra2ce_name + "_" + self.hazard_aggregate_wl[:2]
                             ] = nanmean(precise_matches[self.hazard_field_name])
                     else:
                         hazard_overlay[u][v][k][
-                            race_name + "_" + self.hazard_aggregate_wl[:2]
+                            ra2ce_name + "_" + self.hazard_aggregate_wl[:2]
                         ] = 0
                 else:
                     hazard_overlay[u][v][k][
-                        race_name + "_" + self.hazard_aggregate_wl[:2]
+                        ra2ce_name + "_" + self.hazard_aggregate_wl[:2]
                     ] = 0
 
-        self._overlay_hazard_files(networkx_overlay)
+        self._overlay_hazard_files(
+            overlay_func=networkx_overlay, hazard_overlay=hazard_overlay
+        )
 
         return hazard_overlay
 
@@ -101,7 +105,9 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
         """
         gdf_crs_original = hazard_overlay.crs
 
-        def geodataframe_overlay(hazard_shp_file: Path, ra2ce_name: str):
+        def geodataframe_overlay(
+            hazard_overlay: GeoDataFrame, hazard_shp_file: Path, ra2ce_name: str
+        ):
             gdf_hazard = read_file(str(hazard_shp_file))
 
             if hazard_overlay.crs != gdf_hazard.crs:
@@ -121,13 +127,21 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
                 inplace=True,
             )
 
-        self._overlay_hazard_files(geodataframe_overlay)
+        self._overlay_hazard_files(
+            hazard_overlay=hazard_overlay, overlay_func=geodataframe_overlay
+        )
 
         if hazard_overlay.crs != gdf_crs_original:
             hazard_overlay = hazard_overlay.to_crs(gdf_crs_original)
 
         return hazard_overlay
 
-    def _overlay_hazard_files(self, overlay_func: Callable[[str, str], None]):
+    def _overlay_hazard_files(
+        self, overlay_func: Callable[[str, str], None], hazard_overlay: GeoDataFrame
+    ):
         for i, _ra2ce_name in enumerate(self.ra2ce_names):
-            overlay_func(self.hazard_gpkg_files[i], _ra2ce_name)
+            overlay_func(
+                hazard_overlay=hazard_overlay,
+                hazard_shp_file=self.hazard_gpkg_files[i],
+                ra2ce_name=_ra2ce_name,
+            )
