@@ -19,14 +19,16 @@
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from typing import Callable, List
 from pathlib import Path
-from typing import Callable
-
-from geopandas import GeoDataFrame, read_file, sjoin
-from networkx import Graph
+from shapely.geometry import LineString, MultiPolygon
+from shapely.strtree import STRtree
 from numpy import nanmean
-
+from geopandas import GeoDataFrame, read_file
+import networkx as nx
+from networkx import Graph
 from ra2ce.network.hazard.hazard_intersect.hazard_intersect_builder_base import (
     HazardIntersectBuilderBase,
 )
@@ -36,8 +38,8 @@ from ra2ce.network.hazard.hazard_intersect.hazard_intersect_builder_base import 
 class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
     hazard_field_name: str = ""
     hazard_aggregate_wl: str = ""
-    ra2ce_names: list[str] = field(default_factory=list)
-    hazard_gpkg_files: list[Path] = field(default_factory=list)
+    ra2ce_names: List[str] = field(default_factory=list)
+    hazard_gpkg_files: List[Path] = field(default_factory=list)
 
     def _from_networkx(self, hazard_overlay: Graph) -> Graph:
         """Overlays the hazard `gpkg` file over the road segments NetworkX graph.
@@ -49,44 +51,76 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
             hazard_overlay (NetworkX graph): The graph with hazard shapefile(s) data joined
         """
 
-        # TODO check if the CRS of the graph and shapefile match
         def networkx_overlay(
-            hazard_overlay: GeoDataFrame, hazard_shp_file: Path, ra2ce_name: str
-        ) -> GeoDataFrame:
+            hazard_overlay: Graph, hazard_shp_file: Path, ra2ce_name: str
+        ) -> Graph:
             gdf = read_file(str(hazard_shp_file))
-            spatial_index = gdf.sindex
+            tree = STRtree(gdf["geometry"].tolist())
+            hazard_geoms = gdf.geometry.values
 
-            for u, v, k, edata in hazard_overlay.edges.data(keys=True):
+            def process_edge(u, v, k, edata):
                 if "geometry" in edata:
-                    possible_matches_index = list(
-                        spatial_index.intersection(edata["geometry"].bounds)
+                    total_length = edata["geometry"].length
+                    if total_length == 0:
+                        return 0, 0
+
+                    possible_matches_indices = tree.query(edata["geometry"])
+                    # intersection_length = sum(
+                    #     edata["geometry"].intersection(hazard_geoms[idx]).length
+                    #     for idx in possible_matches_indices
+                    #     if edata["geometry"].intersects(hazard_geoms[idx])
+                    #     and gdf.iloc[idx][self.hazard_field_name] != 0
+                    # )
+                    intersection_length = sum(
+                        edata["geometry"].intersection(poly).length
+                        for idx in possible_matches_indices
+                        for poly in (
+                            hazard_geoms[idx].geoms
+                            if isinstance(hazard_geoms[idx], MultiPolygon)
+                            else [hazard_geoms[idx]]
+                        )
+                        if edata["geometry"].intersects(poly)
+                        and gdf.iloc[idx][self.hazard_field_name] != 0
                     )
-                    possible_matches = gdf.iloc[possible_matches_index]
-                    precise_matches = possible_matches[
-                        possible_matches.intersects(edata["geometry"])
+                    intersection_fraction = intersection_length / total_length
+
+                    intersected_values = [
+                        gdf.iloc[idx][self.hazard_field_name]
+                        for idx in possible_matches_indices
+                        if edata["geometry"].intersects(hazard_geoms[idx])
+                        and gdf.iloc[idx][self.hazard_field_name] != 0
                     ]
 
-                    if not precise_matches.empty:
+                    if intersected_values:
                         if self.hazard_aggregate_wl == "max":
-                            hazard_overlay[u][v][k][
-                                ra2ce_name + "_" + self.hazard_aggregate_wl[:2]
-                            ] = precise_matches[self.hazard_field_name].max()
-                        if self.hazard_aggregate_wl == "min":
-                            hazard_overlay[u][v][k][
-                                ra2ce_name + "_" + self.hazard_aggregate_wl[:2]
-                            ] = precise_matches[self.hazard_field_name].min()
-                        if self.hazard_aggregate_wl == "mean":
-                            hazard_overlay[u][v][k][
-                                ra2ce_name + "_" + self.hazard_aggregate_wl[:2]
-                            ] = nanmean(precise_matches[self.hazard_field_name])
+                            hazard_value = max(intersected_values)
+                        elif self.hazard_aggregate_wl == "min":
+                            hazard_value = min(intersected_values)
+                        elif self.hazard_aggregate_wl == "mean":
+                            hazard_value = nanmean(intersected_values)
                     else:
-                        hazard_overlay[u][v][k][
-                            ra2ce_name + "_" + self.hazard_aggregate_wl[:2]
-                        ] = 0
+                        hazard_value = 0
+
+                    return intersection_fraction, hazard_value
                 else:
-                    hazard_overlay[u][v][k][
-                        ra2ce_name + "_" + self.hazard_aggregate_wl[:2]
-                    ] = 0
+                    return 0, 0
+
+            with ThreadPoolExecutor() as executor:
+                results = list(
+                    executor.map(
+                        lambda edge: process_edge(*edge),
+                        hazard_overlay.edges(data=True, keys=True),
+                    )
+                )
+
+            for (u, v, k, edata), (intersection_fraction, hazard_value) in zip(
+                hazard_overlay.edges(data=True, keys=True), results
+            ):
+                edata[ra2ce_name + "_" + self.hazard_aggregate_wl[:2]] = hazard_value
+                edata[ra2ce_name + "_" + self.hazard_aggregate_wl[:2] + "_fr"] = (
+                    intersection_fraction
+                )
+
             return hazard_overlay
 
         hazard_overlay = self._overlay_hazard_files(
@@ -95,39 +129,185 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
 
         return hazard_overlay
 
+    # def _from_networkx(self, hazard_overlay: Graph) -> Graph:
+    #     """Overlays the hazard `gpkg` file over the road segments NetworkX graph.
+
+    #     Args:
+    #         hazard_overlay (NetworkX graph): The graph that should be overlayed with the hazard `gpkg` file(s).
+
+    #     Returns:
+    #         hazard_overlay (NetworkX graph): The graph with hazard shapefile(s) data joined
+    #     """
+
+    #     # TODO check if the CRS of the graph and shapefile match
+    #     def networkx_overlay(
+    #         hazard_overlay: Graph, hazard_shp_file: Path, ra2ce_name: str
+    #     ) -> Graph:
+    #         # Load hazard shapefile as GeoDataFrame
+    #         hazard_gdf = read_file(str(hazard_shp_file))
+
+    #         # Ensure CRS is set correctly, reproject if needed
+    #         if hazard_overlay.graph["crs"] != hazard_gdf.crs:
+    #             hazard_gdf = hazard_gdf.to_crs(hazard_overlay.graph.crs)
+
+    #         # Build spatial index for the hazard GeoDataFrame
+    #         spatial_index = hazard_gdf.sindex
+
+    #         # Define keys for intersection fraction and intersected values
+    #         fraction_key = ra2ce_name + "_" + self.hazard_aggregate_wl[:2] + "_fr"
+    #         values_key = ra2ce_name + "_" + self.hazard_aggregate_wl[:2]
+
+    #         # Iterate over the edges in the NetworkX graph
+    #         for u, v, k, edata in hazard_overlay.edges(data=True, keys=True):
+    #             if "geometry" in edata:
+    #                 edge_geom = edata["geometry"]
+    #                 if not isinstance(edge_geom, LineString):
+    #                     edge_geom = LineString(edge_geom)
+
+    #                 # Use spatial index to find potential matches
+    #                 possible_matches_index = list(
+    #                     spatial_index.intersection(edge_geom.bounds)
+    #                 )
+    #                 possible_matches = hazard_gdf.iloc[possible_matches_index]
+
+    #                 # Filter precise matches where the edge intersects with the polygon
+    #                 precise_matches = possible_matches[
+    #                     possible_matches.intersects(edge_geom)
+    #                 ]
+
+    #                 if not precise_matches.empty:
+    #                     total_intersection_length = 0.0
+    #                     intersected_values = []
+
+    #                     # Calculate intersection length with each polygon and collect intersected values
+    #                     for _, row in precise_matches.iterrows():
+    #                         polygon_geom = row.geometry
+    #                         hazard_value = row[
+    #                             self.hazard_field_name
+    #                         ]  # Replace with the correct hazard field
+    #                         intersection_geom = edge_geom.intersection(polygon_geom)
+
+    #                         # Ensure intersection_geom is a LineString
+    #                         if isinstance(intersection_geom, LineString):
+    #                             total_intersection_length += intersection_geom.length
+
+    #                         elif intersection_geom.geom_type == "MultiLineString":
+    #                             total_intersection_length += sum(
+    #                                 line.length for line in intersection_geom.geoms
+    #                             )
+    #                         if hazard_value != 0:
+    #                             intersected_values.append(hazard_value)
+
+    #                     edge_length = edge_geom.length
+    #                     intersection_fraction = (
+    #                         total_intersection_length / edge_length
+    #                         if edge_length > 0
+    #                         else 0
+    #                     )
+
+    #                     # Calculate the value based on the aggregation type
+    #                     if self.hazard_aggregate_wl == "max":
+    #                         value = max(intersected_values) if intersected_values else 0
+    #                     if self.hazard_aggregate_wl == "min":
+    #                         value = min(intersected_values) if intersected_values else 0
+    #                     if self.hazard_aggregate_wl == "mean":
+    #                         value = (
+    #                             nanmean(intersected_values) if intersected_values else 0
+    #                         )
+
+    #                     # Store the intersection fraction and the aggregated value
+    #                     hazard_overlay[u][v][k][fraction_key] = intersection_fraction
+    #                     hazard_overlay[u][v][k][values_key] = value
+    #                 else:
+    #                     # No intersection, default to 0
+    #                     hazard_overlay[u][v][k][fraction_key] = 0
+    #                     hazard_overlay[u][v][k][values_key] = 0
+    #             else:
+    #                 # No geometry available, default to 0
+    #                 hazard_overlay[u][v][k][fraction_key] = 0
+    #                 hazard_overlay[u][v][k][values_key] = 0
+
+    #         return hazard_overlay
+
+    #     hazard_overlay_performed = self._overlay_hazard_files(
+    #         overlay_func=networkx_overlay, hazard_overlay=hazard_overlay
+    #     )
+
+    #     return hazard_overlay_performed
+
     def _from_geodataframe(self, hazard_overlay: GeoDataFrame) -> GeoDataFrame:
-        """Overlays the hazard shapefile over the road segments GeoDataFrame. The gdf is reprojected to the hazard shapefile if necessary.
+        """Overlays the hazard shapefile over the road segments GeoDataFrame."""
 
-        Args:
-            hazard_overlay (GeoDataFrame): the network geodataframe that should be overlayed with the hazard shapefile(s)
-
-        Returns:
-            hazard_overlay (GeoDataFrame): the network geodataframe with hazard shapefile(s) data joined
-        """
         gdf_crs_original = hazard_overlay.crs
 
         def geodataframe_overlay(
             hazard_overlay: GeoDataFrame, hazard_shp_file: Path, ra2ce_name: str
         ) -> GeoDataFrame:
             gdf_hazard = read_file(str(hazard_shp_file))
+            gdf_hazard["geometry"] = gdf_hazard["geometry"].apply(prepare_geometry)
+            tree = STRtree(gdf_hazard["geometry"].tolist())
 
             if hazard_overlay.crs != gdf_hazard.crs:
                 hazard_overlay = hazard_overlay.to_crs(gdf_hazard.crs)
 
-            hazard_overlay = sjoin(
-                hazard_overlay,
-                gdf_hazard[[self.hazard_field_name, "geometry"]],
-                how="left",
+            intersected_fractions = []
+            hazard_values_list = []
+            hazard_geoms = gdf_hazard["geometry"].values
+
+            def calculate_intersection_fraction(line):
+                total_length = line.length
+                if total_length == 0:
+                    return 0, []
+
+                possible_matches_indices = list(tree.query(line))
+                intersection_length = sum(
+                    line.intersection(hazard_geoms[idx]).length
+                    for idx in possible_matches_indices
+                    if line.intersects(hazard_geoms[idx])
+                )
+                intersection_fraction = intersection_length / total_length
+
+                intersected_values = [
+                    gdf_hazard.iloc[idx][self.hazard_field_name]
+                    for idx in possible_matches_indices
+                    if line.intersects(hazard_geoms[idx])
+                    and gdf_hazard.iloc[idx][self.hazard_field_name] != 0
+                ]
+
+                return intersection_fraction, intersected_values
+
+            # Using ThreadPoolExecutor for parallel processing
+            from concurrent.futures import ThreadPoolExecutor
+
+            with ThreadPoolExecutor() as executor:
+                results = list(
+                    executor.map(
+                        calculate_intersection_fraction, hazard_overlay["geometry"]
+                    )
+                )
+
+            for fraction, intersected_values in results:
+                intersected_fractions.append(fraction)
+
+                if intersected_values:
+                    if self.hazard_aggregate_wl == "max":
+                        hazard_value = max(intersected_values)
+                    elif self.hazard_aggregate_wl == "min":
+                        hazard_value = min(intersected_values)
+                    elif self.hazard_aggregate_wl == "mean":
+                        hazard_value = nanmean(intersected_values)
+                else:
+                    hazard_value = 0
+
+                hazard_values_list.append(hazard_value)
+
+            hazard_overlay[ra2ce_name + "_" + self.hazard_aggregate_wl[:2] + "_fr"] = (
+                intersected_fractions
             )
-            hazard_overlay["wl(m)"] = hazard_overlay["wl(m)"].fillna(0)
-            hazard_overlay.rename(
-                columns={
-                    self.hazard_field_name: ra2ce_name
-                    + "_"
-                    + self.hazard_aggregate_wl[:2]
-                },
-                inplace=True,
+            hazard_overlay[ra2ce_name + "_" + self.hazard_aggregate_wl[:2]] = (
+                hazard_values_list
             )
+
             return hazard_overlay
 
         hazard_overlay_performed = self._overlay_hazard_files(
@@ -140,12 +320,14 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
         return hazard_overlay_performed
 
     def _overlay_hazard_files(
-        self, overlay_func: Callable[[str, str], None], hazard_overlay: GeoDataFrame
+        self,
+        overlay_func: Callable[[GeoDataFrame, Path, str], GeoDataFrame],
+        hazard_overlay: GeoDataFrame,
     ) -> GeoDataFrame:
-        for i, _ra2ce_name in enumerate(self.ra2ce_names):
-            _hazard_overlay = overlay_func(
+        for i, ra2ce_name in enumerate(self.ra2ce_names):
+            hazard_overlay = overlay_func(
                 hazard_overlay=hazard_overlay,
                 hazard_shp_file=self.hazard_gpkg_files[i],
-                ra2ce_name=_ra2ce_name,
+                ra2ce_name=ra2ce_name,
             )
-        return _hazard_overlay
+        return hazard_overlay
