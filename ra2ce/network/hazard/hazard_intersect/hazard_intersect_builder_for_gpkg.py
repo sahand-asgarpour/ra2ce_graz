@@ -23,7 +23,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Callable, List
 from pathlib import Path
-from shapely.geometry import LineString, MultiPolygon
+from shapely.geometry import LineString, MultiPolygon, Polygon
 from shapely.strtree import STRtree
 from numpy import nanmean
 from geopandas import GeoDataFrame, read_file
@@ -54,9 +54,16 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
         def networkx_overlay(
             hazard_overlay: Graph, hazard_shp_file: Path, ra2ce_name: str
         ) -> Graph:
-            gdf = read_file(str(hazard_shp_file))
-            tree = STRtree(gdf["geometry"].tolist())
-            hazard_geoms = gdf.geometry.values
+            gdf_hazard = read_file(str(hazard_shp_file))
+
+            if hazard_overlay.graph["crs"] != gdf_hazard.crs:
+                gdf_hazard = gdf_hazard.to_crs(hazard_overlay.crs)
+
+            # Convert MultiPolygon to Polygon
+            gdf_hazard_exploded = self._explode_multigeometries(gdf_hazard)
+
+            tree = STRtree(gdf_hazard_exploded["geometry"].tolist())
+            hazard_geoms = gdf_hazard_exploded.geometry.values
 
             def process_edge(u, v, k, edata):
                 if "geometry" in edata:
@@ -65,12 +72,6 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
                         return 0, 0
 
                     possible_matches_indices = tree.query(edata["geometry"])
-                    # intersection_length = sum(
-                    #     edata["geometry"].intersection(hazard_geoms[idx]).length
-                    #     for idx in possible_matches_indices
-                    #     if edata["geometry"].intersects(hazard_geoms[idx])
-                    #     and gdf.iloc[idx][self.hazard_field_name] != 0
-                    # )
                     intersection_length = sum(
                         edata["geometry"].intersection(poly).length
                         for idx in possible_matches_indices
@@ -80,15 +81,15 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
                             else [hazard_geoms[idx]]
                         )
                         if edata["geometry"].intersects(poly)
-                        and gdf.iloc[idx][self.hazard_field_name] != 0
+                        and gdf_hazard_exploded.iloc[idx][self.hazard_field_name] != 0
                     )
                     intersection_fraction = intersection_length / total_length
 
                     intersected_values = [
-                        gdf.iloc[idx][self.hazard_field_name]
+                        gdf_hazard_exploded.iloc[idx][self.hazard_field_name]
                         for idx in possible_matches_indices
                         if edata["geometry"].intersects(hazard_geoms[idx])
-                        and gdf.iloc[idx][self.hazard_field_name] != 0
+                        and gdf_hazard_exploded.iloc[idx][self.hazard_field_name] != 0
                     ]
 
                     if intersected_values:
@@ -129,112 +130,6 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
 
         return hazard_overlay
 
-    # def _from_networkx(self, hazard_overlay: Graph) -> Graph:
-    #     """Overlays the hazard `gpkg` file over the road segments NetworkX graph.
-
-    #     Args:
-    #         hazard_overlay (NetworkX graph): The graph that should be overlayed with the hazard `gpkg` file(s).
-
-    #     Returns:
-    #         hazard_overlay (NetworkX graph): The graph with hazard shapefile(s) data joined
-    #     """
-
-    #     # TODO check if the CRS of the graph and shapefile match
-    #     def networkx_overlay(
-    #         hazard_overlay: Graph, hazard_shp_file: Path, ra2ce_name: str
-    #     ) -> Graph:
-    #         # Load hazard shapefile as GeoDataFrame
-    #         hazard_gdf = read_file(str(hazard_shp_file))
-
-    #         # Ensure CRS is set correctly, reproject if needed
-    #         if hazard_overlay.graph["crs"] != hazard_gdf.crs:
-    #             hazard_gdf = hazard_gdf.to_crs(hazard_overlay.graph.crs)
-
-    #         # Build spatial index for the hazard GeoDataFrame
-    #         spatial_index = hazard_gdf.sindex
-
-    #         # Define keys for intersection fraction and intersected values
-    #         fraction_key = ra2ce_name + "_" + self.hazard_aggregate_wl[:2] + "_fr"
-    #         values_key = ra2ce_name + "_" + self.hazard_aggregate_wl[:2]
-
-    #         # Iterate over the edges in the NetworkX graph
-    #         for u, v, k, edata in hazard_overlay.edges(data=True, keys=True):
-    #             if "geometry" in edata:
-    #                 edge_geom = edata["geometry"]
-    #                 if not isinstance(edge_geom, LineString):
-    #                     edge_geom = LineString(edge_geom)
-
-    #                 # Use spatial index to find potential matches
-    #                 possible_matches_index = list(
-    #                     spatial_index.intersection(edge_geom.bounds)
-    #                 )
-    #                 possible_matches = hazard_gdf.iloc[possible_matches_index]
-
-    #                 # Filter precise matches where the edge intersects with the polygon
-    #                 precise_matches = possible_matches[
-    #                     possible_matches.intersects(edge_geom)
-    #                 ]
-
-    #                 if not precise_matches.empty:
-    #                     total_intersection_length = 0.0
-    #                     intersected_values = []
-
-    #                     # Calculate intersection length with each polygon and collect intersected values
-    #                     for _, row in precise_matches.iterrows():
-    #                         polygon_geom = row.geometry
-    #                         hazard_value = row[
-    #                             self.hazard_field_name
-    #                         ]  # Replace with the correct hazard field
-    #                         intersection_geom = edge_geom.intersection(polygon_geom)
-
-    #                         # Ensure intersection_geom is a LineString
-    #                         if isinstance(intersection_geom, LineString):
-    #                             total_intersection_length += intersection_geom.length
-
-    #                         elif intersection_geom.geom_type == "MultiLineString":
-    #                             total_intersection_length += sum(
-    #                                 line.length for line in intersection_geom.geoms
-    #                             )
-    #                         if hazard_value != 0:
-    #                             intersected_values.append(hazard_value)
-
-    #                     edge_length = edge_geom.length
-    #                     intersection_fraction = (
-    #                         total_intersection_length / edge_length
-    #                         if edge_length > 0
-    #                         else 0
-    #                     )
-
-    #                     # Calculate the value based on the aggregation type
-    #                     if self.hazard_aggregate_wl == "max":
-    #                         value = max(intersected_values) if intersected_values else 0
-    #                     if self.hazard_aggregate_wl == "min":
-    #                         value = min(intersected_values) if intersected_values else 0
-    #                     if self.hazard_aggregate_wl == "mean":
-    #                         value = (
-    #                             nanmean(intersected_values) if intersected_values else 0
-    #                         )
-
-    #                     # Store the intersection fraction and the aggregated value
-    #                     hazard_overlay[u][v][k][fraction_key] = intersection_fraction
-    #                     hazard_overlay[u][v][k][values_key] = value
-    #                 else:
-    #                     # No intersection, default to 0
-    #                     hazard_overlay[u][v][k][fraction_key] = 0
-    #                     hazard_overlay[u][v][k][values_key] = 0
-    #             else:
-    #                 # No geometry available, default to 0
-    #                 hazard_overlay[u][v][k][fraction_key] = 0
-    #                 hazard_overlay[u][v][k][values_key] = 0
-
-    #         return hazard_overlay
-
-    #     hazard_overlay_performed = self._overlay_hazard_files(
-    #         overlay_func=networkx_overlay, hazard_overlay=hazard_overlay
-    #     )
-
-    #     return hazard_overlay_performed
-
     def _from_geodataframe(self, hazard_overlay: GeoDataFrame) -> GeoDataFrame:
         """Overlays the hazard shapefile over the road segments GeoDataFrame."""
 
@@ -244,15 +139,17 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
             hazard_overlay: GeoDataFrame, hazard_shp_file: Path, ra2ce_name: str
         ) -> GeoDataFrame:
             gdf_hazard = read_file(str(hazard_shp_file))
-            gdf_hazard["geometry"] = gdf_hazard["geometry"].apply(prepare_geometry)
-            tree = STRtree(gdf_hazard["geometry"].tolist())
 
             if hazard_overlay.crs != gdf_hazard.crs:
                 hazard_overlay = hazard_overlay.to_crs(gdf_hazard.crs)
 
+            # Convert MultiPolygon to Polygon
+            gdf_hazard_exploded = self._explode_multigeometries(gdf_hazard)
+            tree = STRtree(gdf_hazard_exploded["geometry"].tolist())
+
             intersected_fractions = []
             hazard_values_list = []
-            hazard_geoms = gdf_hazard["geometry"].values
+            hazard_geoms = gdf_hazard_exploded["geometry"].values
 
             def calculate_intersection_fraction(line):
                 total_length = line.length
@@ -268,10 +165,10 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
                 intersection_fraction = intersection_length / total_length
 
                 intersected_values = [
-                    gdf_hazard.iloc[idx][self.hazard_field_name]
+                    gdf_hazard_exploded.iloc[idx][self.hazard_field_name]
                     for idx in possible_matches_indices
                     if line.intersects(hazard_geoms[idx])
-                    and gdf_hazard.iloc[idx][self.hazard_field_name] != 0
+                    and gdf_hazard_exploded.iloc[idx][self.hazard_field_name] != 0
                 ]
 
                 return intersection_fraction, intersected_values
@@ -331,3 +228,35 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
                 ra2ce_name=ra2ce_name,
             )
         return hazard_overlay
+
+    def _explode_multigeometries(self, gdf: GeoDataFrame) -> GeoDataFrame:
+        """Convert MultiPolygon geometries in a GeoDataFrame to individual Polygon geometries.
+
+        Args:
+            gdf (GeoDataFrame): The input GeoDataFrame with MultiPolygon geometries.
+
+        Returns:
+            GeoDataFrame: A new GeoDataFrame with individual Polygon geometries.
+        """
+
+        def explode_geometry(row):
+            if isinstance(row.geometry, MultiPolygon):
+                return [Polygon(poly) for poly in row.geometry.geoms]
+            else:
+                return [row.geometry]
+
+        # Explode MultiPolygon geometries
+        exploded_geometries = []
+        exploded_attributes = []
+        for _, row in gdf.iterrows():
+            exploded_geom = explode_geometry(row)
+            for geom in exploded_geom:
+                exploded_geometries.append(geom)
+                exploded_attributes.append(row.drop("geometry"))
+
+        exploded_gdf = GeoDataFrame(
+            exploded_attributes, geometry=exploded_geometries, crs=gdf.crs
+        )
+        exploded_gdf["polygon_id"] = range(1, len(exploded_gdf) + 1)
+
+        return exploded_gdf
