@@ -118,9 +118,9 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
                 hazard_overlay.edges(data=True, keys=True), results
             ):
                 edata[ra2ce_name + "_" + self.hazard_aggregate_wl[:2]] = hazard_value
-                edata[ra2ce_name + "_" + self.hazard_aggregate_wl[:2] + "_fr"] = (
-                    intersection_fraction
-                )
+                edata[
+                    ra2ce_name + "_" + self.hazard_aggregate_wl[:2] + "_fr"
+                ] = intersection_fraction
 
             return hazard_overlay
 
@@ -198,12 +198,12 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
 
                 hazard_values_list.append(hazard_value)
 
-            hazard_overlay[ra2ce_name + "_" + self.hazard_aggregate_wl[:2] + "_fr"] = (
-                intersected_fractions
-            )
-            hazard_overlay[ra2ce_name + "_" + self.hazard_aggregate_wl[:2]] = (
-                hazard_values_list
-            )
+            hazard_overlay[
+                ra2ce_name + "_" + self.hazard_aggregate_wl[:2] + "_fr"
+            ] = intersected_fractions
+            hazard_overlay[
+                ra2ce_name + "_" + self.hazard_aggregate_wl[:2]
+            ] = hazard_values_list
 
             return hazard_overlay
 
@@ -239,11 +239,11 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
             GeoDataFrame: A new GeoDataFrame with individual Polygon geometries.
         """
 
-        def explode_geometry(row):
-            if isinstance(row.geometry, MultiPolygon):
-                return [Polygon(poly) for poly in row.geometry.geoms]
+        def explode_geometry(_row):
+            if isinstance(_row.geometry, MultiPolygon):
+                return [Polygon(poly) for poly in _row.geometry.geoms]
             else:
-                return [row.geometry]
+                return [_row.geometry]
 
         # Explode MultiPolygon geometries
         exploded_geometries = []
