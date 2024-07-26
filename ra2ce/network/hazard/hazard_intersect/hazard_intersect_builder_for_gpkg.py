@@ -53,7 +53,7 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
         def networkx_overlay(
             _hazard_overlay: Graph, hazard_shp_file: Path, ra2ce_name: str
         ) -> Graph:
-            def process_edge(_u, _v, _edata):
+            def process_edge(_u, _v, _k, _edata):
                 if "geometry" in _edata:
                     total_length = _edata["geometry"].length
                     if total_length == 0:
@@ -114,7 +114,7 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
                 )
 
             for (u, v, k, edata), (intersection_fraction, hazard_value) in zip(
-                _hazard_overlay.edges(data=True), results
+                _hazard_overlay.edges(data=True, keys=True), results
             ):
                 edata[ra2ce_name + "_" + self.hazard_aggregate_wl[:2]] = hazard_value
                 edata[ra2ce_name + "_" + "fr"] = intersection_fraction
@@ -218,7 +218,7 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
     ) -> GeoDataFrame:
         for i, ra2ce_name in enumerate(self.ra2ce_names):
             hazard_overlay = overlay_func(
-                hazard_overlay=hazard_overlay,
+                _hazard_overlay=hazard_overlay,
                 hazard_shp_file=self.hazard_gpkg_files[i],
                 ra2ce_name=ra2ce_name,
             )
