@@ -54,17 +54,6 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
         def networkx_overlay(
             hazard_overlay: Graph, hazard_shp_file: Path, ra2ce_name: str
         ) -> Graph:
-            gdf_hazard = read_file(str(hazard_shp_file))
-
-            if hazard_overlay.graph["crs"] != gdf_hazard.crs:
-                gdf_hazard = gdf_hazard.to_crs(hazard_overlay.crs)
-
-            # Convert MultiPolygon to Polygon
-            gdf_hazard_exploded = self._explode_multigeometries(gdf_hazard)
-
-            tree = STRtree(gdf_hazard_exploded["geometry"].tolist())
-            hazard_geoms = gdf_hazard_exploded.geometry.values
-
             def process_edge(u, v, k, edata):
                 if "geometry" in edata:
                     total_length = edata["geometry"].length
@@ -106,6 +95,17 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
                 else:
                     return 0, 0
 
+            gdf_hazard = read_file(str(hazard_shp_file))
+
+            if hazard_overlay.graph["crs"] != gdf_hazard.crs:
+                gdf_hazard = gdf_hazard.to_crs(hazard_overlay.crs)
+
+            # Convert MultiPolygon to Polygon
+            gdf_hazard_exploded = self._explode_multigeometries(gdf_hazard)
+
+            tree = STRtree(gdf_hazard_exploded["geometry"].tolist())
+            hazard_geoms = gdf_hazard_exploded.geometry.values
+
             with ThreadPoolExecutor() as executor:
                 results = list(
                     executor.map(
@@ -118,9 +118,7 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
                 hazard_overlay.edges(data=True, keys=True), results
             ):
                 edata[ra2ce_name + "_" + self.hazard_aggregate_wl[:2]] = hazard_value
-                edata[
-                    ra2ce_name + "_" + self.hazard_aggregate_wl[:2] + "_fr"
-                ] = intersection_fraction
+                edata[ra2ce_name + "_" + "fr"] = intersection_fraction
 
             return hazard_overlay
 
@@ -198,12 +196,10 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
 
                 hazard_values_list.append(hazard_value)
 
-            hazard_overlay[
-                ra2ce_name + "_" + self.hazard_aggregate_wl[:2] + "_fr"
-            ] = intersected_fractions
-            hazard_overlay[
-                ra2ce_name + "_" + self.hazard_aggregate_wl[:2]
-            ] = hazard_values_list
+            hazard_overlay[ra2ce_name + "_" + "fr"] = intersected_fractions
+            hazard_overlay[ra2ce_name + "_" + self.hazard_aggregate_wl[:2]] = (
+                hazard_values_list
+            )
 
             return hazard_overlay
 
@@ -218,8 +214,8 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
 
     def _overlay_hazard_files(
         self,
-        overlay_func: Callable[[GeoDataFrame, Path, str], GeoDataFrame],
-        hazard_overlay: GeoDataFrame,
+        overlay_func: Callable[[GeoDataFrame | Graph, Path, str], GeoDataFrame | Graph],
+        hazard_overlay: GeoDataFrame | Graph,
     ) -> GeoDataFrame:
         for i, ra2ce_name in enumerate(self.ra2ce_names):
             hazard_overlay = overlay_func(
