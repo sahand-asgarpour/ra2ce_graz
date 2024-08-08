@@ -146,7 +146,7 @@ class DamageNetworkBase(ABC):
         )  # The lookup class contains all kinds of data
         gdf = self.gdf
         gdf.rename(
-            columns={"highway": "infra_type"}, inplace=True
+            columns={"railway": "infra_type"}, inplace=True
         )  # Todo: this should probably not be done here
         gdf["road_type"] = gdf["infra_type"]
         gdf = gdf.replace({"road_type": road_mapping_dict})
