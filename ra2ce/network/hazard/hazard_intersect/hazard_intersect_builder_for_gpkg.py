@@ -23,6 +23,9 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Callable, List
 from pathlib import Path
+
+import numpy as np
+from shapely.errors import TopologicalError
 from shapely.geometry import MultiPolygon, Polygon
 from shapely.strtree import STRtree
 from numpy import nanmean
@@ -51,48 +54,74 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
         """
 
         def networkx_overlay(
-            _hazard_overlay: Graph, hazard_shp_file: Path, ra2ce_name: str
+                _hazard_overlay: Graph, hazard_shp_file: Path, ra2ce_name: str
         ) -> Graph:
+            def validate_and_fix_geometry(geometry):
+                """Validate and fix invalid geometry using buffer(0). Return None if invalid."""
+                if not geometry.is_valid:
+                    try:
+                        geometry = geometry.buffer(0)
+                    except TopologicalError:
+                        return None
+                return geometry if geometry.is_valid else None
+
             def process_edge(_u, _v, _k, _edata):
-                if "geometry" in _edata:
-                    total_length = _edata["geometry"].length
-                    if total_length == 0:
-                        return 0, 0
-
-                    possible_matches_indices = tree.query(_edata["geometry"])
-                    intersection_length = sum(
-                        _edata["geometry"].intersection(poly).length
-                        for idx in possible_matches_indices
-                        for poly in (
-                            hazard_geoms[idx].geoms
-                            if isinstance(hazard_geoms[idx], MultiPolygon)
-                            else [hazard_geoms[idx]]
-                        )
-                        if _edata["geometry"].intersects(poly)
-                        and gdf_hazard_exploded.iloc[idx][self.hazard_field_name] != 0
-                    )
-                    _intersection_fraction = intersection_length / total_length
-
-                    intersected_values = [
-                        gdf_hazard_exploded.iloc[idx][self.hazard_field_name]
-                        for idx in possible_matches_indices
-                        if _edata["geometry"].intersects(hazard_geoms[idx])
-                        and gdf_hazard_exploded.iloc[idx][self.hazard_field_name] != 0
-                    ]
-
-                    if intersected_values:
-                        if self.hazard_aggregate_wl == "max":
-                            _hazard_value = max(intersected_values)
-                        elif self.hazard_aggregate_wl == "min":
-                            _hazard_value = min(intersected_values)
-                        elif self.hazard_aggregate_wl == "mean":
-                            _hazard_value = nanmean(intersected_values)
-                    else:
-                        _hazard_value = 0
-
-                    return _intersection_fraction, _hazard_value
-                else:
+                """Process an edge to calculate the intersection fraction and hazard value."""
+                if "geometry" not in _edata:
                     return 0, 0
+
+                # Validate the edge geometry
+                geom = validate_and_fix_geometry(_edata["geometry"])
+                if geom is None or geom.length == 0:
+                    return 0, 0
+
+                total_length = geom.length
+
+                # Query the spatial index tree for intersecting geometries
+                possible_matches_indices = tree.query(geom)
+
+                intersection_length = 0
+                intersected_values = []
+
+                # Iterate over possible matches and calculate intersection length and hazard values
+                for idx in possible_matches_indices:
+                    poly = hazard_geoms[idx]
+
+                    # Validate and fix the hazard geometry if needed
+                    poly = validate_and_fix_geometry(poly)
+                    if poly is None:
+                        continue
+
+                    # Convert MultiPolygon to list of polygons for uniform processing
+                    polygons_to_check = (
+                        poly.geoms if isinstance(poly, MultiPolygon) else [poly]
+                    )
+
+                    # Calculate intersection length and hazard values
+                    for poly_part in polygons_to_check:
+                        if geom.intersects(poly_part):
+                            intersection_length += geom.intersection(poly_part).length
+
+                            hazard_value = gdf_hazard_exploded.iloc[idx][
+                                self.hazard_field_name
+                            ]
+                            if hazard_value != 0:
+                                intersected_values.append(hazard_value)
+
+                if intersection_length == 0:
+                    return 0, 0
+
+                _intersection_fraction = intersection_length / total_length
+
+                # Determine hazard value using the specified aggregation method
+                if intersected_values:
+                    _hazard_value = {"max": max, "min": min, "mean": np.nanmean}.get(
+                        self.hazard_aggregate_wl, np.nanmean
+                    )(intersected_values)
+                else:
+                    _hazard_value = 0
+
+                return _intersection_fraction, _hazard_value
 
             gdf_hazard = read_file(str(hazard_shp_file))
 
@@ -114,7 +143,7 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
                 )
 
             for (u, v, k, edata), (intersection_fraction, hazard_value) in zip(
-                _hazard_overlay.edges(data=True, keys=True), results
+                    _hazard_overlay.edges(data=True, keys=True), results
             ):
                 edata[ra2ce_name + "_" + self.hazard_aggregate_wl[:2]] = hazard_value
                 edata[ra2ce_name + "_" + "fr"] = intersection_fraction
@@ -133,7 +162,7 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
         gdf_crs_original = hazard_overlay.crs
 
         def geodataframe_overlay(
-            _hazard_overlay: GeoDataFrame, hazard_shp_file: Path, ra2ce_name: str
+                _hazard_overlay: GeoDataFrame, hazard_shp_file: Path, ra2ce_name: str
         ) -> GeoDataFrame:
             gdf_hazard = read_file(str(hazard_shp_file))
 
@@ -165,7 +194,7 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
                     gdf_hazard_exploded.iloc[idx][self.hazard_field_name]
                     for idx in possible_matches_indices
                     if line.intersects(hazard_geoms[idx])
-                    and gdf_hazard_exploded.iloc[idx][self.hazard_field_name] != 0
+                       and gdf_hazard_exploded.iloc[idx][self.hazard_field_name] != 0
                 ]
 
                 return intersection_fraction, _intersected_values
@@ -196,9 +225,9 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
                 hazard_values_list.append(hazard_value)
 
             _hazard_overlay[ra2ce_name + "_" + "fr"] = intersected_fractions
-            _hazard_overlay[ra2ce_name + "_" + self.hazard_aggregate_wl[:2]] = (
-                hazard_values_list
-            )
+            _hazard_overlay[
+                ra2ce_name + "_" + self.hazard_aggregate_wl[:2]
+                ] = hazard_values_list
 
             return _hazard_overlay
 
@@ -212,9 +241,9 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
         return hazard_overlay_performed
 
     def _overlay_hazard_files(
-        self,
-        overlay_func: Callable[[GeoDataFrame | Graph, Path, str], GeoDataFrame | Graph],
-        hazard_overlay: GeoDataFrame | Graph,
+            self,
+            overlay_func: Callable[[GeoDataFrame | Graph, Path, str], GeoDataFrame | Graph],
+            hazard_overlay: GeoDataFrame | Graph,
     ) -> GeoDataFrame:
         for i, ra2ce_name in enumerate(self.ra2ce_names):
             hazard_overlay = overlay_func(
