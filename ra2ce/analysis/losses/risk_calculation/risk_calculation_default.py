@@ -1,5 +1,4 @@
 import logging
-
 import geopandas as gpd
 
 from ra2ce.analysis.losses.risk_calculation.risk_calculation_base import (

@@ -19,6 +19,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import networkx as nx
+import numpy as np
+import pandas as pd
 from shapely import MultiLineString
 from shapely.ops import linemerge
 from snkit.network import Network
@@ -43,27 +45,15 @@ class SnkitNetworkWrapper:
     """
 
     snkit_network: Network
-    node_id_column_name: str
-    edge_from_id_column_name: str
-    edge_to_id_column_name: str
-
-    def __init__(
-        self,
-        snkit_network: Network,
-        node_id_column_name: str,
-        edge_from_id_column_name: str,
-        edge_to_id_column_name: str,
-    ) -> None:
-        self.snkit_network = snkit_network
-        self.node_id_column_name = node_id_column_name
-        self.edge_from_id_column_name = edge_from_id_column_name
-        self.edge_to_id_column_name = edge_to_id_column_name
+    node_id_column_name: str = "id"
+    edge_from_id_column_name: str = "from_id"
+    edge_to_id_column_name: str = "to_id"
 
     @classmethod
     def from_networkx(
-        cls,
-        networkx_graph: NxGraph,
-        column_names_dict: dict[str, str],
+            cls,
+            networkx_graph: NxGraph,
+            column_names_dict: dict[str, str],
     ) -> SnkitNetworkWrapper:
         """
         Generates a `SnkitNetworkWrapper` based on the given `NxGraph`.
@@ -103,7 +93,6 @@ class SnkitNetworkWrapper:
         # Overwrite the existing network with the merged edges.
         self.snkit_network = merge_edges(
             snkit_network=self.snkit_network,
-            networkx_graph=self.to_networkx(),
             aggregate_func=_aggregate_function,
             by=_attributes_to_exclude,
             id_col="id",
@@ -116,7 +105,7 @@ class SnkitNetworkWrapper:
         )  # length in m
         self.snkit_network.edges = self.snkit_network.edges[
             self.snkit_network.edges["length"] != 0
-        ]  # Remove zero-length edges
+            ]  # Remove zero-length edges
 
         def convert_to_line_string(geometry_to_convert) -> MultiLineString:
             if isinstance(geometry_to_convert, MultiLineString):
@@ -142,13 +131,24 @@ class SnkitNetworkWrapper:
         ).convert()
 
     def _aggrfunc(self, cols, attributes_to_exclude: list[str], with_demand: bool):
+        def convert_to_numeric(val):
+            """Convert value to float if possible, otherwise return np.nan."""
+            try:
+                return float(val)
+            except (ValueError, TypeError):
+                return np.nan
+
         def aggregate_column(col_data, col_name: str):
             if col_name in attributes_to_exclude:
                 return col_data.iloc[0]
             elif col_name == "rfid_c":
                 return list(col_data)
             elif col_name in ["maxspeed", "avgspeed"]:
-                return col_data.mean()
+                # Convert values to numeric, replacing invalid entries with np.nan
+                numeric_col_data = pd.to_numeric(
+                    col_data.apply(convert_to_numeric), errors="coerce"
+                )
+                return numeric_col_data.mean()
             elif with_demand and col_name == "demand_edge":
                 return max(col_data)
             elif col_data.dtype == "O":

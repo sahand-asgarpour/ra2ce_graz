@@ -11,17 +11,20 @@ spec:
         template: run-scenario
 
   - name: run-scenario
+    nodeSelector:
+      eks.amazonaws.com/nodegroup: argo-m5-4xlarge
     container:
-      image: containers.deltares.nl/ra2ce/ra2ce:latest
-      command: ["python", "/scripts/run_race.py"]
+      image: containers.deltares.nl/ra2ce/ra2ce_graz:latest
+      command: ["python", "/script/damage_analysis.py"]
+      #command: [sh, "-c", "for I in $(seq 1 10000) ; do echo $I ; sleep 1s; done"]
     inputs:
       artifacts:
         - name: data
-          path: /data
+          path: /damage_analysis
           s3:
             endpoint: s3.amazonaws.com
-            bucket: ra2ce-data
-            key: input/data
+            bucket: ra2ce-graz-data
+            key: damage_analysis
             region: eu-west-1
             accessKeySecret:
               name: my-s3-credentials
@@ -29,14 +32,12 @@ spec:
             secretKeySecret:
               name: my-s3-credentials
               key: secretKey
-          archive:
-            none: {}
-        - name: scripts
-          path: /scripts
+        - name: script
+          path: /script
           s3:
             endpoint: s3.amazonaws.com
-            bucket: ra2ce-data
-            key: input/scripts
+            bucket: ra2ce-graz-data
+            key: script
             region: eu-west-1
             accessKeySecret:
               name: my-s3-credentials
@@ -44,14 +45,12 @@ spec:
             secretKeySecret:
               name: my-s3-credentials
               key: secretKey
-          archive:
-            none: {}
     outputs:
       artifacts:
       - name: ra2ce-output
-        path: /data
+        path: /damage_analysis
         s3:
-          bucket: ra2ce-data
+          bucket: ra2ce-graz-data
           endpoint: s3.amazonaws.com
           region: eu-west-1
           key: output

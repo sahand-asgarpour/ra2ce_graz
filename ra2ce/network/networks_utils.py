@@ -20,10 +20,10 @@
 """
 import itertools
 import logging
+import math
 import os
 import sys
 import warnings
-from copy import deepcopy
 from pathlib import Path
 from statistics import mean
 from typing import Optional
@@ -1480,16 +1480,16 @@ def add_simple_id_to_graph_complex(
 
     """
 
-    # {(u,v,k) : 'rfid_c'}
-    obtained_complex_ids = nx.get_edge_attributes(complex_graph, "{}_c".format(new_id))
-    # start with a copy
-    simple_ids_per_complex_id = deepcopy(obtained_complex_ids)
+    obtained_complex_ids = nx.get_edge_attributes(
+        complex_graph, "{}_c".format(new_id)
+    )  # {(u,v,k) : 'rfid_c'}
+    simple_ids_per_complex_id = obtained_complex_ids  # start with a copy
 
-    # {(u,v,k) : 'rfid_c'}
-    for key, value in obtained_complex_ids.items():
+    for key, value in obtained_complex_ids.items():  # {(u,v,k) : 'rfid_c'}
         try:
-            # find simple id belonging to the complex id
-            new_value = complex_to_simple[value]
+            new_value = complex_to_simple[
+                value
+            ]  # find simple id belonging to the complex id
             simple_ids_per_complex_id[key] = new_value
         except KeyError as e:
             logging.error(
@@ -1581,7 +1581,6 @@ def buffer_geometry(
     )
     return gdf
 
-
 def add_complex_id_to_graph_simple(
     simple_graph: nx.classes.Graph, simple_to_complex, simple_id: str
 ) -> nx.classes.Graph:
@@ -1597,16 +1596,16 @@ def add_complex_id_to_graph_simple(
 
     """
 
-    # {(u,v,k) : 'rfid'}
-    obtained_simple_ids = nx.get_edge_attributes(simple_graph, f"{simple_id}")
-    # start with a copy
-    complex_ids_per_simple_id = deepcopy(obtained_simple_ids)
+    obtained_simple_ids = nx.get_edge_attributes(
+        simple_graph, f"{simple_id}"
+    )  # {(u,v,k) : 'rfid'}
+    complex_ids_per_simple_id = obtained_simple_ids  # start with a copy
 
-    # {(u,v,k) : 'rfid'}
-    for key, value in obtained_simple_ids.items():
+    for key, value in obtained_simple_ids.items():  # {(u,v,k) : 'rfid'}
         try:
-            # find simple id belonging to the complex id
-            new_value = simple_to_complex[value]
+            new_value = simple_to_complex[
+                value
+            ]  # find simple id belonging to the complex id
             complex_ids_per_simple_id[key] = new_value
         except KeyError as e:
             logging.error(
