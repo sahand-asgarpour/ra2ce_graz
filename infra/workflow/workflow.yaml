@@ -5,60 +5,60 @@ metadata:
 spec:
   entrypoint: scenario-workflow
   templates:
-  - name: scenario-workflow
-    steps:
-    - - name: run-scenario
-        template: run-scenario
+    - name: scenario-workflow
+      steps:
+        - - name: run-scenario
+            template: run-scenario
 
-  - name: run-scenario
-    nodeSelector:
-      eks.amazonaws.com/nodegroup: argo-m5-4xlarge
-    container:
-      image: containers.deltares.nl/ra2ce/ra2ce_graz:latest
-      command: ["python", "/script/damage_analysis.py"]
-      #command: [sh, "-c", "for I in $(seq 1 10000) ; do echo $I ; sleep 1s; done"]
-    inputs:
-      artifacts:
-        - name: data
-          path: /damage_analysis
-          s3:
-            endpoint: s3.amazonaws.com
-            bucket: ra2ce-graz-data
-            key: damage_analysis
-            region: eu-west-1
-            accessKeySecret:
-              name: my-s3-credentials
-              key: accessKey
-            secretKeySecret:
-              name: my-s3-credentials
-              key: secretKey
-        - name: script
-          path: /script
-          s3:
-            endpoint: s3.amazonaws.com
-            bucket: ra2ce-graz-data
-            key: script
-            region: eu-west-1
-            accessKeySecret:
-              name: my-s3-credentials
-              key: accessKey
-            secretKeySecret:
-              name: my-s3-credentials
-              key: secretKey
-    outputs:
-      artifacts:
-      - name: ra2ce-output
-        path: /damage_analysis
-        s3:
-          bucket: ra2ce-graz-data
-          endpoint: s3.amazonaws.com
-          region: eu-west-1
-          key: output
-          accessKeySecret:
-            name: my-s3-credentials
-            key: accessKey
-          secretKeySecret:
-            name: my-s3-credentials
-            key: secretKey
-        archive:
-          none: {}
+    - name: run-scenario
+      nodeSelector:
+        eks.amazonaws.com/nodegroup: argo-m5-4xlarge
+      container:
+        image: containers.deltares.nl/ra2ce/ra2ce_graz:latest
+        command: [ "python", "/script/damage_analysis.py" ]
+        #command: [sh, "-c", "for I in $(seq 1 10000) ; do echo $I ; sleep 1s; done"]
+      inputs:
+        artifacts:
+          - name: data
+            path: /damage_analysis
+            s3:
+              endpoint: s3.amazonaws.com
+              bucket: ra2ce-graz-data
+              key: damage_analysis
+              region: eu-west-1
+              accessKeySecret:
+                name: my-s3-credentials
+                key: accessKey
+              secretKeySecret:
+                name: my-s3-credentials
+                key: secretKey
+          - name: script
+            path: /script
+            s3:
+              endpoint: s3.amazonaws.com
+              bucket: ra2ce-graz-data
+              key: script
+              region: eu-west-1
+              accessKeySecret:
+                name: my-s3-credentials
+                key: accessKey
+              secretKeySecret:
+                name: my-s3-credentials
+                key: secretKey
+      outputs:
+        artifacts:
+          - name: ra2ce-output
+            path: /damage_analysis
+            s3:
+              bucket: ra2ce-graz-data
+              endpoint: s3.amazonaws.com
+              region: eu-west-1
+              key: output  # change this for each run to avoid overwriting the results for each workflow
+              accessKeySecret:
+                name: my-s3-credentials
+                key: accessKey
+              secretKeySecret:
+                name: my-s3-credentials
+                key: secretKey
+            archive:
+              none: { }
