@@ -54,7 +54,7 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
         """
 
         def networkx_overlay(
-                _hazard_overlay: Graph, hazard_shp_file: Path, ra2ce_name: str
+            _hazard_overlay: Graph, hazard_shp_file: Path, ra2ce_name: str
         ) -> Graph:
             def validate_and_fix_geometry(geometry):
                 """Validate and fix invalid geometry using buffer(0). Return None if invalid."""
@@ -143,7 +143,7 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
                 )
 
             for (u, v, k, edata), (intersection_fraction, hazard_value) in zip(
-                    _hazard_overlay.edges(data=True, keys=True), results
+                _hazard_overlay.edges(data=True, keys=True), results
             ):
                 edata[ra2ce_name + "_" + self.hazard_aggregate_wl[:2]] = hazard_value
                 edata[ra2ce_name + "_" + "fr"] = intersection_fraction
@@ -162,7 +162,7 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
         gdf_crs_original = hazard_overlay.crs
 
         def geodataframe_overlay(
-                _hazard_overlay: GeoDataFrame, hazard_shp_file: Path, ra2ce_name: str
+            _hazard_overlay: GeoDataFrame, hazard_shp_file: Path, ra2ce_name: str
         ) -> GeoDataFrame:
             gdf_hazard = read_file(str(hazard_shp_file))
 
@@ -194,7 +194,7 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
                     gdf_hazard_exploded.iloc[idx][self.hazard_field_name]
                     for idx in possible_matches_indices
                     if line.intersects(hazard_geoms[idx])
-                       and gdf_hazard_exploded.iloc[idx][self.hazard_field_name] != 0
+                    and gdf_hazard_exploded.iloc[idx][self.hazard_field_name] != 0
                 ]
 
                 return intersection_fraction, _intersected_values
@@ -227,7 +227,7 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
             _hazard_overlay[ra2ce_name + "_" + "fr"] = intersected_fractions
             _hazard_overlay[
                 ra2ce_name + "_" + self.hazard_aggregate_wl[:2]
-                ] = hazard_values_list
+            ] = hazard_values_list
 
             return _hazard_overlay
 
@@ -241,9 +241,9 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
         return hazard_overlay_performed
 
     def _overlay_hazard_files(
-            self,
-            overlay_func: Callable[[GeoDataFrame | Graph, Path, str], GeoDataFrame | Graph],
-            hazard_overlay: GeoDataFrame | Graph,
+        self,
+        overlay_func: Callable[[GeoDataFrame | Graph, Path, str], GeoDataFrame | Graph],
+        hazard_overlay: GeoDataFrame | Graph,
     ) -> GeoDataFrame:
         for i, ra2ce_name in enumerate(self.ra2ce_names):
             hazard_overlay = overlay_func(
