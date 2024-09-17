@@ -18,7 +18,7 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
-
+import logging
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Callable, List
@@ -84,6 +84,9 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
                 intersected_values = []
 
                 # Iterate over possible matches and calculate intersection length and hazard values
+                logging.info(
+                    "Iterating over possible matches and calculate intersection length and hazard values"
+                )
                 for idx in possible_matches_indices:
                     poly = hazard_geoms[idx]
 
@@ -129,11 +132,13 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
                 gdf_hazard = gdf_hazard.to_crs(_hazard_overlay.graph["crs"])
 
             # Convert MultiPolygon to Polygon
+            logging.info("Converting MultiPolygon to Polygon")
             gdf_hazard_exploded = self._explode_multigeometries(gdf_hazard)
 
             tree = STRtree(gdf_hazard_exploded["geometry"].tolist())
             hazard_geoms = gdf_hazard_exploded.geometry.values
 
+            logging.info("Processing edges for hazard overlay")
             with ThreadPoolExecutor() as executor:
                 results = list(
                     executor.map(
@@ -170,7 +175,10 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
                 _hazard_overlay = _hazard_overlay.to_crs(gdf_hazard.crs)
 
             # Convert MultiPolygon to Polygon
+            logging.info("Converting MultiPolygon to Polygon")
             gdf_hazard_exploded = self._explode_multigeometries(gdf_hazard)
+
+            logging.info("Creating STRee")
             tree = STRtree(gdf_hazard_exploded["geometry"].tolist())
 
             intersected_fractions = []
@@ -202,6 +210,7 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
             # Using ThreadPoolExecutor for parallel processing
             from concurrent.futures import ThreadPoolExecutor
 
+            logging.info("Calculating intersection fractions for hazard overlay")
             with ThreadPoolExecutor() as executor:
                 results = list(
                     executor.map(
@@ -209,6 +218,7 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
                     )
                 )
 
+            logging.info("Calculating hazard values")
             for fraction, intersected_values in results:
                 intersected_fractions.append(fraction)
 

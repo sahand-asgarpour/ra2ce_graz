@@ -18,7 +18,7 @@
     You should have received a copy of the GNU General Public License
     along with this program.  If not, see <http://www.gnu.org/licenses/>.
 """
-
+import logging
 from abc import ABC, abstractmethod
 
 from geopandas import GeoDataFrame
@@ -33,6 +33,9 @@ class HazardIntersectBuilderBase(ABC, HazardIntersectBuilderProtocol):
     def get_intersection(
         self, hazard_overlay: GeoDataFrame | Graph
     ) -> GeoDataFrame | Graph:
+        logging.info(
+            f"Getting the suitable hazard overlay function for {hazard_overlay}"
+        )
         if isinstance(hazard_overlay, GeoDataFrame):
             return self._from_geodataframe(hazard_overlay)
         elif isinstance(hazard_overlay, Graph):
