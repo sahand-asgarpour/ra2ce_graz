@@ -34,6 +34,7 @@ from networkx import Graph
 from ra2ce.network.hazard.hazard_intersect.hazard_intersect_builder_base import (
     HazardIntersectBuilderBase,
 )
+from tqdm import tqdm
 
 
 @dataclass
@@ -83,10 +84,6 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
                 intersection_length = 0
                 intersected_values = []
 
-                # Iterate over possible matches and calculate intersection length and hazard values
-                logging.info(
-                    "Iterating over possible matches and calculate intersection length and hazard values"
-                )
                 for idx in possible_matches_indices:
                     poly = hazard_geoms[idx]
 
@@ -139,11 +136,22 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
             hazard_geoms = gdf_hazard_exploded.geometry.values
 
             logging.info("Processing edges for hazard overlay")
+
+            # Get the total number of edges for progress tracking
+            total_edges = _hazard_overlay.number_of_edges()
+
+            # Process edges in parallel and track progress
             with ThreadPoolExecutor() as executor:
+                # Wrap the edges iterator in tqdm for progress tracking
+                edges = list(_hazard_overlay.edges(data=True, keys=True))
+
+                # Process edges in parallel while showing the tqdm progress bar
                 results = list(
-                    executor.map(
-                        lambda edge: process_edge(*edge),
-                        _hazard_overlay.edges(data=True, keys=True),
+                    tqdm(
+                        executor.map(lambda edge: process_edge(*edge), edges),
+                        total=total_edges,
+                        desc="Processing Edges",
+                        unit="edge"
                     )
                 )
 
@@ -211,10 +219,17 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
             from concurrent.futures import ThreadPoolExecutor
 
             logging.info("Calculating intersection fractions for hazard overlay")
+
+            # Wrap the geometries with tqdm for progress tracking
+            geometries = _hazard_overlay["geometry"]
+
             with ThreadPoolExecutor() as executor:
+                # Use tqdm to track the progress
                 results = list(
-                    executor.map(
-                        calculate_intersection_fraction, _hazard_overlay["geometry"]
+                    tqdm(
+                        executor.map(calculate_intersection_fraction, geometries),
+                        total=len(geometries),  # Total number of geometries to process
+                        desc="Processing geometries",  # Description for the progress bar
                     )
                 )
 
