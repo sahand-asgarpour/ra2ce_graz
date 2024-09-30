@@ -1016,7 +1016,7 @@ class LookUp:
         )
 
     @staticmethod
-    def get_max_damages_osd(gdp_correction_ratio: float):
+    def get_max_damages_osd(pricelevel_correction: float, gdp_correction_ratio: float):
         """Lookup table for max damages of the OSdaMage damage functions"""
         # Note that these values have been converted to euro/m road length
         max_damages_osd = OrderedDict(
@@ -1054,10 +1054,13 @@ class LookUp:
             ]
         )
         max_damages_osd_corrected = copy.deepcopy(max_damages_osd)
-        if gdp_correction_ratio > 0 or not np.isnan(gdp_correction):
+        if ((gdp_correction_ratio > 0 or not np.isnan(gdp_correction)) or
+                (pricelevel_correction > 0 or not np.isnan(pricelevel_correction))):
             for key in max_damages_osd_corrected:
                 for sub_key in max_damages_osd_corrected[key]:
                     max_damages_osd_corrected[key][sub_key] *= gdp_correction_austria
+                    max_damages_osd_corrected[key][sub_key] *= pricelevel_correction
+
         return max_damages_osd_corrected
 
     @staticmethod
