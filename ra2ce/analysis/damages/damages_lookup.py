@@ -1061,7 +1061,7 @@ class LookUp:
                 (pricelevel_correction > 0 or not np.isnan(pricelevel_correction))):
             for key in max_damages_osd_corrected:
                 for sub_key in max_damages_osd_corrected[key]:
-                    max_damages_osd_corrected[key][sub_key] *= gdp_correction_austria
+                    max_damages_osd_corrected[key][sub_key] *= gdp_per_capita_correction
                     max_damages_osd_corrected[key][sub_key] *= pricelevel_correction
 
         return max_damages_osd_corrected
