@@ -32,7 +32,7 @@ class TestDamagesLookUp:
         )
 
     def test_get_max_damages_osd(self):
-        _max_damages = LookUp.get_max_damages_osd(pricelevel_correction=np.nan, gdp_correction_ratio=np.nan)
+        _max_damages = LookUp.get_max_damages_osd(pricelevel_correction=np.nan, gdp_per_capita_correction=np.nan)
         assert isinstance(_max_damages, OrderedDict)
         assert list(_max_damages.keys()) == ["Lower", "Upper"]
         _sorted_keys = sorted(_lookup_keys)
