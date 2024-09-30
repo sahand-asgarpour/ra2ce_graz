@@ -30,6 +30,7 @@ import pandas as pd
 from pandas import DataFrame
 from scipy.interpolate import interp1d
 
+_damage_str = "damage (% of total construction costs)"
 _depth_cm_str = "depth (cm)"
 curves_lookup_dict = {
             "C1": {
@@ -1126,8 +1127,6 @@ class LookUp:
 
         Units of the interpolator objects: water depth in cm on x-axis; damage fraction (unitless) on y-axis
         """
-        _damage_str = "damage (% of total construction costs)"
-
         flood_curves = pd.DataFrame.from_dict(corrected_curves_lookup_dict)
         headers = flood_curves.columns
 
