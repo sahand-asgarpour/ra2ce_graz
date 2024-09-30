@@ -310,7 +310,7 @@ class DamageNetworkBase(ABC):
 
         # Load the OSdaMage functions
         max_damages = lookup.get_max_damages_osd(pricelevel_correction=1.267,
-                                                 gdp_per_capita_correction=44195.8 / 30487.7)
+                                                 gdp_per_capita_correction=44195.8 / 39200)
         interpolators = lookup.get_flood_curves()
         interpolators.pop(
             "HZ"
