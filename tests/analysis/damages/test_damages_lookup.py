@@ -1,4 +1,5 @@
 from collections import OrderedDict
+import numpy as np
 
 from ra2ce.analysis.damages.damages_lookup import CreateLookupTables, LookUp
 from tests import test_data
@@ -31,7 +32,7 @@ class TestDamagesLookUp:
         )
 
     def test_get_max_damages_osd(self):
-        _max_damages = LookUp.get_max_damages_osd()
+        _max_damages = LookUp.get_max_damages_osd(gdp_correction_ratio=np.nan)
         assert isinstance(_max_damages, OrderedDict)
         assert list(_max_damages.keys()) == ["Lower", "Upper"]
         _sorted_keys = sorted(_lookup_keys)

@@ -309,7 +309,7 @@ class DamageNetworkBase(ABC):
         end = "me"  # indicate that you want to use the mean
 
         # Load the OSdaMage functions
-        max_damages = lookup.get_max_damages_osd()
+        max_damages = lookup.get_max_damages_osd(gdp_correction_ratio=381.97 / 13550)
         interpolators = lookup.get_flood_curves()
         interpolators.pop(
             "HZ"
