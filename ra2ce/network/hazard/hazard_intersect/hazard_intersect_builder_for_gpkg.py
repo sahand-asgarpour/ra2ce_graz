@@ -123,45 +123,77 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
 
                 return _intersection_fraction, _hazard_value
 
+            # Load and transform hazard data if necessary
             gdf_hazard = read_file(str(hazard_shp_file))
-
             if _hazard_overlay.graph["crs"] != gdf_hazard.crs:
                 gdf_hazard = gdf_hazard.to_crs(_hazard_overlay.graph["crs"])
 
-            # Convert MultiPolygon to Polygon
+            # Explode MultiPolygon geometries for individual processing
             logging.info("Converting MultiPolygon to Polygon")
             gdf_hazard_exploded = self._explode_multigeometries(gdf_hazard)
-
-            tree = STRtree(gdf_hazard_exploded["geometry"].tolist())
             hazard_geoms = gdf_hazard_exploded.geometry.values
+            tree = STRtree(hazard_geoms)
 
             logging.info("Processing edges for hazard overlay")
-
-            # Get the total number of edges for progress tracking
             total_edges = _hazard_overlay.number_of_edges()
 
-            # Process edges in parallel and track progress
-            with ThreadPoolExecutor() as executor:
-                # Wrap the edges iterator in tqdm for progress tracking
-                edges = list(_hazard_overlay.edges(data=True, keys=True))
-
-                # Process edges in parallel while showing the tqdm progress bar
-                results = list(
-                    tqdm(
-                        executor.map(lambda edge: process_edge(*edge), edges),
-                        total=total_edges,
-                        desc="Processing Edges",
-                        unit="edge"
-                    )
-                )
-
-            for (u, v, k, edata), (intersection_fraction, hazard_value) in zip(
-                _hazard_overlay.edges(data=True, keys=True), results
+            # Processing edges with in-place updates
+            for u, v, k, edata in tqdm(
+                _hazard_overlay.edges(data=True, keys=True),
+                total=total_edges,
+                desc="Processing Edges",
+                unit="edge",
             ):
-                edata[ra2ce_name + "_" + self.hazard_aggregate_wl[:2]] = hazard_value
-                edata[ra2ce_name + "_" + "fr"] = intersection_fraction
+                if "geometry" not in edata:
+                    continue  # Skip edges without geometry attribute
+
+                # Calculate intersection fraction and hazard value using the process_edge function
+                intersection_fraction, hazard_value = process_edge(u, v, k, edata)
+
+                # Update edge data directly
+                edata[f"{ra2ce_name}_{self.hazard_aggregate_wl[:2]}"] = hazard_value
+                edata[f"{ra2ce_name}_fr"] = intersection_fraction
 
             return _hazard_overlay
+            # gdf_hazard = read_file(str(hazard_shp_file))
+            #
+            # if _hazard_overlay.graph["crs"] != gdf_hazard.crs:
+            #     gdf_hazard = gdf_hazard.to_crs(_hazard_overlay.graph["crs"])
+            #
+            # # Convert MultiPolygon to Polygon
+            # logging.info("Converting MultiPolygon to Polygon")
+            # gdf_hazard_exploded = self._explode_multigeometries(gdf_hazard)
+            #
+            # tree = STRtree(gdf_hazard_exploded["geometry"].tolist())
+            # hazard_geoms = gdf_hazard_exploded.geometry.values
+            #
+            # logging.info("Processing edges for hazard overlay")
+            #
+            # # Get the total number of edges for progress tracking
+            # total_edges = _hazard_overlay.number_of_edges()
+            #
+            # # Process edges in parallel and track progress
+            # with ThreadPoolExecutor() as executor:
+            #     # Wrap the edges iterator in tqdm for progress tracking
+            #     edges = list(_hazard_overlay.edges(data=True, keys=True))
+            #
+            #     # Process edges in parallel while showing the tqdm progress bar
+            #     results = list(
+            #         tqdm(
+            #             executor.map(lambda edge: process_edge(*edge), edges),
+            #             total=total_edges,
+            #             desc="Processing Edges",
+            #             unit="edge"
+            #         )
+            #     )
+            #
+            # for (u, v, k, edata), (intersection_fraction, hazard_value) in zip(
+            #     _hazard_overlay.edges(data=True, keys=True), results
+            # ):
+            #     edata[ra2ce_name + "_" + self.hazard_aggregate_wl[:2]] = hazard_value
+            #     edata[ra2ce_name + "_" + "fr"] = intersection_fraction
+            #
+            # return _hazard_overlay
 
         hazard_overlay = self._overlay_hazard_files(
             overlay_func=networkx_overlay, hazard_overlay=hazard_overlay
@@ -177,22 +209,6 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
         def geodataframe_overlay(
             _hazard_overlay: GeoDataFrame, hazard_shp_file: Path, ra2ce_name: str
         ) -> GeoDataFrame:
-            gdf_hazard = read_file(str(hazard_shp_file))
-
-            if _hazard_overlay.crs != gdf_hazard.crs:
-                _hazard_overlay = _hazard_overlay.to_crs(gdf_hazard.crs)
-
-            # Convert MultiPolygon to Polygon
-            logging.info("Converting MultiPolygon to Polygon")
-            gdf_hazard_exploded = self._explode_multigeometries(gdf_hazard)
-
-            logging.info("Creating STRee")
-            tree = STRtree(gdf_hazard_exploded["geometry"].tolist())
-
-            intersected_fractions = []
-            hazard_values_list = []
-            hazard_geoms = gdf_hazard_exploded["geometry"].values
-
             def calculate_intersection_fraction(line):
                 total_length = line.length
                 if total_length == 0:
@@ -215,46 +231,141 @@ class HazardIntersectBuilderForGpkg(HazardIntersectBuilderBase):
 
                 return intersection_fraction, _intersected_values
 
-            # Using ThreadPoolExecutor for parallel processing
-            from concurrent.futures import ThreadPoolExecutor
+            # Load hazard data
+            gdf_hazard = read_file(str(hazard_shp_file))
 
-            logging.info("Calculating intersection fractions for hazard overlay")
+            # Align coordinate reference systems if different
+            if _hazard_overlay.crs != gdf_hazard.crs:
+                _hazard_overlay = _hazard_overlay.to_crs(gdf_hazard.crs)
 
-            # Wrap the geometries with tqdm for progress tracking
-            geometries = _hazard_overlay["geometry"]
+            # Explode MultiPolygons to individual Polygons for efficient processing
+            logging.info("Converting MultiPolygon to Polygon")
+            gdf_hazard_exploded = self._explode_multigeometries(gdf_hazard)
+            hazard_geoms = gdf_hazard_exploded["geometry"].values
+            tree = STRtree(hazard_geoms)
 
-            with ThreadPoolExecutor() as executor:
-                # Use tqdm to track the progress
-                results = list(
-                    tqdm(
-                        executor.map(calculate_intersection_fraction, geometries),
-                        total=len(geometries),  # Total number of geometries to process
-                        desc="Processing geometries",  # Description for the progress bar
-                    )
-                )
-
-            logging.info("Calculating hazard values")
-            for fraction, intersected_values in results:
-                intersected_fractions.append(fraction)
-
-                if intersected_values:
-                    if self.hazard_aggregate_wl == "max":
-                        hazard_value = max(intersected_values)
-                    elif self.hazard_aggregate_wl == "min":
-                        hazard_value = min(intersected_values)
-                    elif self.hazard_aggregate_wl == "mean":
-                        hazard_value = nanmean(intersected_values)
-                else:
-                    hazard_value = 0
-
-                hazard_values_list.append(hazard_value)
-
-            _hazard_overlay[ra2ce_name + "_" + "fr"] = intersected_fractions
+            # Prepare columns for results in _hazard_overlay
+            _hazard_overlay[f"{ra2ce_name}_fr"] = 0  # Intersection fraction
             _hazard_overlay[
-                ra2ce_name + "_" + self.hazard_aggregate_wl[:2]
-            ] = hazard_values_list
+                f"{ra2ce_name}_{self.hazard_aggregate_wl[:2]}"
+            ] = 0  # Hazard value
+
+            logging.info("Processing geometries for hazard overlay")
+
+            # Iterate over each geometry in _hazard_overlay and calculate intersections
+            for idx, geom in tqdm(
+                enumerate(_hazard_overlay["geometry"]),
+                total=len(_hazard_overlay),
+                desc="Processing Geometries",
+                unit="geom",
+            ):
+                if geom is None or geom.is_empty:
+                    continue  # Skip if geometry is invalid or empty
+
+                # Query STRtree for intersecting hazard geometries
+                intersecting_indices = tree.query(geom)
+
+                # Initialize tracking of intersection length and hazard values
+                total_length = geom.length
+                intersection_length = 0
+                intersected_values = []
+
+                for hazard_idx in intersecting_indices:
+                    hazard_geom = hazard_geoms[hazard_idx]
+                    if not geom.intersects(hazard_geom):
+                        continue  # Skip non-intersecting geometries
+
+                    # Calculate intersection length
+                    intersection = geom.intersection(hazard_geom)
+                    intersection_length += (
+                        intersection.length
+                        if intersection.is_empty
+                        else intersection.length
+                    )
+
+                    # Store hazard value for current intersecting geometry
+                    hazard_value = gdf_hazard_exploded.iloc[hazard_idx][
+                        self.hazard_field_name
+                    ]
+                    if hazard_value != 0:
+                        intersected_values.append(hazard_value)
+
+                # Calculate intersection fraction
+                intersection_fraction = (
+                    intersection_length / total_length if total_length > 0 else 0
+                )
+                _hazard_overlay.at[idx, f"{ra2ce_name}_fr"] = intersection_fraction
+
+                # Set hazard value based on aggregation method
+                if intersected_values:
+                    _hazard_overlay.at[
+                        idx, f"{ra2ce_name}_{self.hazard_aggregate_wl[:2]}"
+                    ] = {"max": max, "min": min, "mean": np.nanmean}.get(
+                        self.hazard_aggregate_wl, np.nanmean
+                    )(
+                        intersected_values
+                    )
 
             return _hazard_overlay
+
+            # gdf_hazard = read_file(str(hazard_shp_file))
+            #
+            # if _hazard_overlay.crs != gdf_hazard.crs:
+            #     _hazard_overlay = _hazard_overlay.to_crs(gdf_hazard.crs)
+            #
+            # # Convert MultiPolygon to Polygon
+            # logging.info("Converting MultiPolygon to Polygon")
+            # gdf_hazard_exploded = self._explode_multigeometries(gdf_hazard)
+            #
+            # logging.info("Creating STRee")
+            # tree = STRtree(gdf_hazard_exploded["geometry"].tolist())
+            #
+            # intersected_fractions = []
+            # hazard_values_list = []
+            # hazard_geoms = gdf_hazard_exploded["geometry"].values
+            #
+            #
+            #
+            # # Using ThreadPoolExecutor for parallel processing
+            # from concurrent.futures import ThreadPoolExecutor
+            #
+            # logging.info("Calculating intersection fractions for hazard overlay")
+            #
+            # # Wrap the geometries with tqdm for progress tracking
+            # geometries = _hazard_overlay["geometry"]
+            #
+            # with ThreadPoolExecutor() as executor:
+            #     # Use tqdm to track the progress
+            #     results = list(
+            #         tqdm(
+            #             executor.map(calculate_intersection_fraction, geometries),
+            #             total=len(geometries),  # Total number of geometries to process
+            #             desc="Processing geometries",  # Description for the progress bar
+            #         )
+            #     )
+            #
+            # logging.info("Calculating hazard values")
+            # for fraction, intersected_values in results:
+            #     intersected_fractions.append(fraction)
+            #
+            #     if intersected_values:
+            #         if self.hazard_aggregate_wl == "max":
+            #             hazard_value = max(intersected_values)
+            #         elif self.hazard_aggregate_wl == "min":
+            #             hazard_value = min(intersected_values)
+            #         elif self.hazard_aggregate_wl == "mean":
+            #             hazard_value = nanmean(intersected_values)
+            #     else:
+            #         hazard_value = 0
+            #
+            #     hazard_values_list.append(hazard_value)
+            #
+            # _hazard_overlay[ra2ce_name + "_" + "fr"] = intersected_fractions
+            # _hazard_overlay[
+            #     ra2ce_name + "_" + self.hazard_aggregate_wl[:2]
+            # ] = hazard_values_list
+            #
+            # return _hazard_overlay
 
         hazard_overlay_performed = self._overlay_hazard_files(
             hazard_overlay=hazard_overlay, overlay_func=geodataframe_overlay

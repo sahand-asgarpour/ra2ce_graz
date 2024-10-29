@@ -12,7 +12,7 @@ spec:
 
     - name: run-scenario
       nodeSelector:
-        eks.amazonaws.com/nodegroup: argo-m5-4xlarge
+        eks.amazonaws.com/nodegroup: argo-worker-with-disk2-20241022081839631400000002
       container:
         image: containers.deltares.nl/ra2ce/ra2ce_graz:latest
         command: [ "python", "/script/damage_analysis.py" ]
