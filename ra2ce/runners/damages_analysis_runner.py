@@ -210,22 +210,32 @@ class DamagesAnalysisRunner(AnalysisRunner):
             starttime = time.time()
 
             _result_segmented = analysis.execute()
-            _result_link_based = self._get_result_link_based(
-                analysis=analysis,
-                analysis_config=analysis_config,
-                result_segment_based=_result_segmented,
-            )
+            # _result_link_based = self._get_result_link_based(
+            #     analysis=analysis,
+            #     analysis_config=analysis_config,
+            #     result_segment_based=_result_segmented,
+            # )
             analysis_name = analysis.analysis.name
-            for _result, suffix in zip(
-                [_result_segmented, _result_link_based], ["segmented", "link_based"]
-            ):
-                _result_wrapper = AnalysisResultWrapper(
-                    analysis_result=_result, analysis=analysis
-                )
-                _result_wrapper.analysis.analysis.name = analysis_name + "_" + suffix
-                _results.append(_result_wrapper)
+            # for _result, suffix in zip(
+            #     [_result_segmented, _result_link_based], ["segmented", "link_based"]
+            # ):
+            #     _result_wrapper = AnalysisResultWrapper(
+            #         analysis_result=_result, analysis=analysis
+            #     )
+            #     _result_wrapper.analysis.analysis.name = analysis_name + "_" + suffix
+            #     _results.append(_result_wrapper)
+            #
+            #     AnalysisResultWrapperExporter().export_result(_result_wrapper)
+            # for _result, suffix in zip(
+            #     [_result_segmented, _result_link_based], ["segmented", "link_based"]
+            # ):
+            _result_wrapper = AnalysisResultWrapper(
+                analysis_result=_result_segmented, analysis=analysis
+            )
+            _result_wrapper.analysis.analysis.name = analysis_name + "_segmented"
+            _results.append(_result_wrapper)
 
-                AnalysisResultWrapperExporter().export_result(_result_wrapper)
+            AnalysisResultWrapperExporter().export_result(_result_wrapper)
 
             endtime = time.time()
             logging.info(
